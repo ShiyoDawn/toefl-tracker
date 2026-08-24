@@ -77,6 +77,16 @@ button {
   color: #ffffff;
 }
 
+.action-button.danger {
+  border-color: #dc2626;
+  color: #991b1b;
+}
+
+.action-button.danger:hover {
+  border-color: #b91c1c;
+  background: #fef2f2;
+}
+
 .icon-button {
   display: grid;
   width: 40px;

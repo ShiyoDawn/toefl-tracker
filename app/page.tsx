@@ -244,6 +244,24 @@ export default function Home() {
     });
   }
 
+  function deleteCurrent() {
+    if (!activeAttempt) return;
+    const confirmed = window.confirm(`确定删除「${activeAttempt.title}」这条模考记录吗？`);
+    if (!confirmed) return;
+
+    const remaining = attempts.filter((attempt) => attempt.id !== activeAttempt.id);
+    if (remaining.length) {
+      setAttempts(remaining);
+      setActiveId(remaining[0].id);
+      return;
+    }
+
+    const next = makeEmptyAttempt('模拟卷 1');
+    setAttempts([next]);
+    setActiveId(next.id);
+    setTab('entry');
+  }
+
   const weakItems = useMemo(() => {
     if (!activeAttempt) return [];
     return templateItems
@@ -269,6 +287,7 @@ export default function Home() {
             <div className="flex flex-wrap items-center gap-2">
               <button className="action-button primary" onClick={addAttempt}>新增模考</button>
               <button className="action-button" onClick={duplicateAttempt}>复制当前</button>
+              <button className="action-button danger" onClick={deleteCurrent}>删除当前</button>
               <button className="icon-button" aria-label="清空当前模考" title="清空当前模考" onClick={resetCurrent}>×</button>
             </div>
           </div>
