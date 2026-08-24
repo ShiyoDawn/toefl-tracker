@@ -11,6 +11,7 @@ type TemplateItem = {
   route: 'Router' | 'Upper' | 'Task';
   section: Section;
   max: number;
+  sampleScore: number;
 };
 
 type Attempt = {
@@ -35,34 +36,36 @@ type SectionSummary = {
   official: number | '';
 };
 
+const itemMax = 30;
+
 const templateItems: TemplateItem[] = [
-  { id: 'upper-listen-response', label: 'Upper Listen and Choose a Response', route: 'Upper', section: 'Listening', max: 30 },
-  { id: 'upper-academic-talk-1', label: 'Upper Listen to an Academic Talk', route: 'Upper', section: 'Listening', max: 30 },
-  { id: 'upper-academic-talk-2', label: 'Upper Listen to an Academic Talk / 2', route: 'Upper', section: 'Listening', max: 30 },
-  { id: 'upper-conversation-1', label: 'Upper Listen to a Conversation', route: 'Upper', section: 'Listening', max: 30 },
-  { id: 'upper-conversation-2', label: 'Upper Listen to a Conversation / 2', route: 'Upper', section: 'Listening', max: 15 },
-  { id: 'upper-read-academic', label: 'Upper Read an Academic Passage', route: 'Upper', section: 'Reading', max: 24 },
-  { id: 'upper-complete-words', label: 'Upper Complete the Words', route: 'Upper', section: 'Reading', max: 18 },
-  { id: 'router-listen-response', label: 'Router Listen and Choose a Response', route: 'Router', section: 'Listening', max: 19 },
-  { id: 'router-academic-talk-1', label: 'Router Listen to an Academic Talk', route: 'Router', section: 'Listening', max: 30 },
-  { id: 'router-academic-talk-2', label: 'Router Listen to an Academic Talk / 2', route: 'Router', section: 'Listening', max: 21 },
-  { id: 'router-announcement-1', label: 'Router Listen to an Announcement', route: 'Router', section: 'Listening', max: 30 },
-  { id: 'router-announcement-2', label: 'Router Listen to an Announcement / 2', route: 'Router', section: 'Listening', max: 15 },
-  { id: 'router-announcement-3', label: 'Router Listen to an Announcement / 3', route: 'Router', section: 'Listening', max: 15 },
-  { id: 'router-conversation-1', label: 'Router Listen to a Conversation', route: 'Router', section: 'Listening', max: 30 },
-  { id: 'router-conversation-2', label: 'Router Listen to a Conversation / 2', route: 'Router', section: 'Listening', max: 30 },
-  { id: 'router-conversation-3', label: 'Router Listen to a Conversation / 3', route: 'Router', section: 'Listening', max: 30 },
-  { id: 'router-read-academic-1', label: 'Router Read an Academic Passage', route: 'Router', section: 'Reading', max: 24 },
-  { id: 'router-read-academic-2', label: 'Router Read an Academic Passage / 2', route: 'Router', section: 'Reading', max: 18 },
-  { id: 'router-read-daily-1', label: 'Router Read in Daily Life', route: 'Router', section: 'Reading', max: 30 },
-  { id: 'router-read-daily-2', label: 'Router Read in Daily Life / 2', route: 'Router', section: 'Reading', max: 20 },
-  { id: 'router-complete-words', label: 'Router Complete the Words', route: 'Router', section: 'Reading', max: 18 },
-  { id: 'speaking-repeat', label: 'Listen and Repeat', route: 'Task', section: 'Speaking', max: 25 },
-  { id: 'speaking-interview', label: 'Take an Interview', route: 'Task', section: 'Speaking', max: 20 },
-  { id: 'writing-discussion', label: 'Write for an Academic Discussion', route: 'Task', section: 'Writing', max: 15 },
-  { id: 'writing-email', label: 'Write an Email', route: 'Task', section: 'Writing', max: 15 },
-  { id: 'writing-sentence', label: 'Build a Sentence', route: 'Task', section: 'Writing', max: 27 },
-];
+  { id: 'upper-listen-response', label: 'Upper Listen and Choose a Response', route: 'Upper', section: 'Listening', sampleScore: 30 },
+  { id: 'upper-academic-talk-1', label: 'Upper Listen to an Academic Talk', route: 'Upper', section: 'Listening', sampleScore: 30 },
+  { id: 'upper-academic-talk-2', label: 'Upper Listen to an Academic Talk / 2', route: 'Upper', section: 'Listening', sampleScore: 30 },
+  { id: 'upper-conversation-1', label: 'Upper Listen to a Conversation', route: 'Upper', section: 'Listening', sampleScore: 30 },
+  { id: 'upper-conversation-2', label: 'Upper Listen to a Conversation / 2', route: 'Upper', section: 'Listening', sampleScore: 15 },
+  { id: 'upper-read-academic', label: 'Upper Read an Academic Passage', route: 'Upper', section: 'Reading', sampleScore: 24 },
+  { id: 'upper-complete-words', label: 'Upper Complete the Words', route: 'Upper', section: 'Reading', sampleScore: 18 },
+  { id: 'router-listen-response', label: 'Router Listen and Choose a Response', route: 'Router', section: 'Listening', sampleScore: 19 },
+  { id: 'router-academic-talk-1', label: 'Router Listen to an Academic Talk', route: 'Router', section: 'Listening', sampleScore: 30 },
+  { id: 'router-academic-talk-2', label: 'Router Listen to an Academic Talk / 2', route: 'Router', section: 'Listening', sampleScore: 21 },
+  { id: 'router-announcement-1', label: 'Router Listen to an Announcement', route: 'Router', section: 'Listening', sampleScore: 30 },
+  { id: 'router-announcement-2', label: 'Router Listen to an Announcement / 2', route: 'Router', section: 'Listening', sampleScore: 15 },
+  { id: 'router-announcement-3', label: 'Router Listen to an Announcement / 3', route: 'Router', section: 'Listening', sampleScore: 15 },
+  { id: 'router-conversation-1', label: 'Router Listen to a Conversation', route: 'Router', section: 'Listening', sampleScore: 30 },
+  { id: 'router-conversation-2', label: 'Router Listen to a Conversation / 2', route: 'Router', section: 'Listening', sampleScore: 30 },
+  { id: 'router-conversation-3', label: 'Router Listen to a Conversation / 3', route: 'Router', section: 'Listening', sampleScore: 30 },
+  { id: 'router-read-academic-1', label: 'Router Read an Academic Passage', route: 'Router', section: 'Reading', sampleScore: 24 },
+  { id: 'router-read-academic-2', label: 'Router Read an Academic Passage / 2', route: 'Router', section: 'Reading', sampleScore: 18 },
+  { id: 'router-read-daily-1', label: 'Router Read in Daily Life', route: 'Router', section: 'Reading', sampleScore: 30 },
+  { id: 'router-read-daily-2', label: 'Router Read in Daily Life / 2', route: 'Router', section: 'Reading', sampleScore: 20 },
+  { id: 'router-complete-words', label: 'Router Complete the Words', route: 'Router', section: 'Reading', sampleScore: 18 },
+  { id: 'speaking-repeat', label: 'Listen and Repeat', route: 'Task', section: 'Speaking', sampleScore: 25 },
+  { id: 'speaking-interview', label: 'Take an Interview', route: 'Task', section: 'Speaking', sampleScore: 20 },
+  { id: 'writing-discussion', label: 'Write for an Academic Discussion', route: 'Task', section: 'Writing', sampleScore: 15 },
+  { id: 'writing-email', label: 'Write an Email', route: 'Task', section: 'Writing', sampleScore: 15 },
+  { id: 'writing-sentence', label: 'Build a Sentence', route: 'Task', section: 'Writing', sampleScore: 27 },
+].map((item) => ({ ...item, max: itemMax }));
 
 const bandLookup: Record<Section, number[]> = {
   Reading: [1, 1, 1.5, 2, 2.5, 2.5, 3, 3, 3, 3, 3, 3, 3.5, 3.5, 3.5, 3.5, 3.5, 3.5, 4, 4, 4, 4, 4.5, 4.5, 5, 5, 5, 5.5, 5.5, 6, 6],
@@ -91,13 +94,13 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function makeEmptyAttempt(title = '2026年1月第10套') {
+function makeEmptyAttempt(title = '2026年1月第10套', fillSample = false) {
   return {
     id: crypto.randomUUID(),
     title,
     date: today(),
     path: 'Router + Upper',
-    values: Object.fromEntries(templateItems.map((item) => [item.id, ''])),
+    values: Object.fromEntries(templateItems.map((item) => [item.id, fillSample ? item.sampleScore : ''])),
     official: Object.fromEntries(sections.map((section) => [section, ''])),
     notes: '',
   } as Attempt;
@@ -167,7 +170,7 @@ export default function Home() {
         localStorage.removeItem(storageKey);
       }
     }
-    const first = makeEmptyAttempt();
+    const first = makeEmptyAttempt('2026年1月第10套', true);
     setAttempts([first]);
     setActiveId(first.id);
   }, []);
@@ -343,7 +346,7 @@ export default function Home() {
                   <p className="text-sm font-medium text-sky-900">当前卷：{activeAttempt.title}</p>
                   <h2 className="mt-2 text-3xl font-semibold tracking-tight">把每次模考拆成可追踪的题型数据</h2>
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-stone-700">
-                    页面使用你在 toefl.txt 中给出的满分模板录入成绩。Reading 与 Listening 的官方换算包含自适应路径和等值处理，这里给出练习估算，同时支持手动填入官方或平台分数。
+                    页面已按每题满分 30 分设置录入上限，并预填了 toefl.txt 中这次样例成绩。Reading 与 Listening 的官方换算包含自适应路径和等值处理，这里给出练习估算，同时支持手动填入官方或平台分数。
                   </p>
                 </div>
                 <div className="score-dial">
@@ -418,7 +421,7 @@ export default function Home() {
                   <div className="mb-4 flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
                     <div>
                       <h2 className="panel-title">{sectionNames[section]}录分</h2>
-                      <p className="text-sm text-stone-500">空白项不会计入本次估算，适合分阶段练习。</p>
+                      <p className="text-sm text-stone-500">每项满分 30 分；空白项不会计入本次估算，适合分阶段练习。</p>
                     </div>
                     <label className="official-field">
                       <span>官方/平台 0-30</span>
@@ -507,7 +510,7 @@ export default function Home() {
                 <h2>新版 TOEFL iBT 计分规则</h2>
                 <p>2026 年新版 TOEFL iBT 报告 Reading、Listening、Speaking、Writing 四个 section band，每科为 1-6 分，按 0.5 递增。Overall 为四科 band 平均后四舍五入到最近 0.5。</p>
                 <p>Reading 与 Listening 使用 Router 后进入 Upper 或 Lower 的自适应路径。ETS 不公开每套卷的原始分到报告分完整换算，因此本工具使用你的练习得分率生成 0-30 与 1-6 的估算值。</p>
-                <p>Writing 与 Speaking 同样保留估算逻辑，并提供官方/平台 0-30 字段。只要你拿到模考平台或 ETS 的结果，应优先录入官方/平台分，用它校准自己的趋势。</p>
+                <p>本工具里的每个练习条目都按 30 分满分录入，再汇总为各科练习估算。只要你拿到模考平台或 ETS 的结果，应优先录入官方/平台分，用它校准自己的趋势。</p>
               </section>
 
               <section className="panel">
