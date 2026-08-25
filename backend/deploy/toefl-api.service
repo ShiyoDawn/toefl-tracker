@@ -1,0 +1,16 @@
+[Unit]
+Description=TOEFL Tracker API
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+WorkingDirectory=/www/server-apps/toefl-api
+EnvironmentFile=/www/server-apps/toefl-api/.env
+ExecStart=/usr/bin/node /www/server-apps/toefl-api/dist/server.js
+Restart=always
+RestartSec=5
+User=www
+Group=www
+
+[Install]
+WantedBy=multi-user.target
