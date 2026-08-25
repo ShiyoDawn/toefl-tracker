@@ -36,4 +36,6 @@ next-env.d.ts
 /.wrangler/
 /outputs/
 /work/
+/toefl-tracker/
 *.tar.gz
+*.zip
