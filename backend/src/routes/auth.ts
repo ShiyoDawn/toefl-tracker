@@ -24,6 +24,7 @@ const registerSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   password: z.string().min(8).max(128),
   code: z.string().trim().regex(/^\d{6}$/),
+  avatarUrl: z.string().max(2_000_000).optional().default(''),
 });
 
 const loginSchema = z.object({
@@ -118,6 +119,7 @@ export async function authRoutes(app: FastifyInstance) {
           username: body.username,
           email: body.email,
           passwordHash: await hashPassword(body.password),
+          avatarUrl: body.avatarUrl,
           emailVerifiedAt: new Date(),
         },
       });
@@ -156,6 +158,24 @@ export async function authRoutes(app: FastifyInstance) {
   app.get('/api/me', { preHandler: requireAuth }, async (request) => {
     const authRequest = request as AuthenticatedRequest;
     const user = await prisma.user.findUniqueOrThrow({ where: { id: authRequest.user.id } });
+    return { user: publicUser(user) };
+  });
+
+  app.patch('/api/me', { preHandler: requireAuth }, async (request) => {
+    const authRequest = request as AuthenticatedRequest;
+    const body = z
+      .object({
+        avatarUrl: z.string().max(2_000_000).optional(),
+      })
+      .parse(request.body);
+
+    const user = await prisma.user.update({
+      where: { id: authRequest.user.id },
+      data: {
+        avatarUrl: body.avatarUrl,
+      },
+    });
+
     return { user: publicUser(user) };
   });
 }

@@ -30,7 +30,8 @@ type Attempt = {
 type UserAccount = {
   id: string;
   username: string;
-  passwordHash: string;
+  email: string;
+  passwordHash?: string;
   avatar: string;
   createdAt: string;
 };
@@ -44,6 +45,14 @@ type AppState = {
   accounts: UserAccount[];
   sessionUserId: string;
   tracker: TrackerState;
+};
+
+type ApiUser = {
+  id: string;
+  username: string;
+  email: string;
+  avatarUrl?: string;
+  emailVerified?: boolean;
 };
 
 type SectionSummary = {
@@ -191,6 +200,46 @@ const legacyAttemptsStorageKey = 'toefl-tracker-attempts-v1';
 const accountsStorageKey = 'toefl-tracker-users-v1';
 const sessionStorageKey = 'toefl-tracker-session-v1';
 
+class ApiError extends Error {
+  status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
+async function apiRequest<T>(path: string, options: RequestInit = {}) {
+  const headers = new Headers(options.headers);
+  if (options.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json');
+  }
+
+  const response = await fetch(path, {
+    ...options,
+    headers,
+    credentials: 'include',
+  });
+  const text = await response.text();
+  const data = text ? JSON.parse(text) : null;
+
+  if (!response.ok) {
+    throw new ApiError(data?.message ?? '请求失败，请稍后重试。', response.status);
+  }
+
+  return data as T;
+}
+
+function accountFromApi(user: ApiUser): UserAccount {
+  return {
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    avatar: user.avatarUrl ?? '',
+    createdAt: today(),
+  };
+}
+
 function today() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -295,14 +344,14 @@ function readAccounts() {
         return Boolean(
           account &&
             typeof account.id === 'string' &&
-            typeof account.username === 'string' &&
-            typeof account.passwordHash === 'string',
+            typeof account.username === 'string',
         );
       })
       .map((account) => ({
         id: account.id,
         username: account.username,
-        passwordHash: account.passwordHash,
+        email: typeof account.email === 'string' ? account.email : '',
+        passwordHash: typeof account.passwordHash === 'string' ? account.passwordHash : undefined,
         avatar: typeof account.avatar === 'string' ? account.avatar : '',
         createdAt: typeof account.createdAt === 'string' ? account.createdAt : today(),
       }));
@@ -542,17 +591,79 @@ function AvatarMark({ user, size = 'normal' }: { user: Pick<UserAccount, 'userna
   );
 }
 
+function collectLocalMigrationAttempts(user: Pick<UserAccount, 'id' | 'username' | 'email'>) {
+  const attempts = new Map<string, Attempt>();
+  const addAttempts = (items: Attempt[]) => {
+    for (const attempt of items) {
+      attempts.set(attempt.id, attempt);
+    }
+  };
+
+  addAttempts(loadAttemptsFromKey(userAttemptsStorageKey(user.id)));
+  addAttempts(loadAttemptsFromKey(legacyAttemptsStorageKey));
+
+  for (const account of readAccounts()) {
+    const sameUser =
+      account.id === user.id ||
+      account.username.toLowerCase() === user.username.toLowerCase() ||
+      Boolean(account.email && user.email && account.email.toLowerCase() === user.email.toLowerCase());
+    if (sameUser) {
+      addAttempts(loadAttemptsFromKey(userAttemptsStorageKey(account.id)));
+    }
+  }
+
+  return [...attempts.values()];
+}
+
+async function fetchRemoteTracker(user: UserAccount) {
+  const data = await apiRequest<{ attempts: unknown[] }>('/api/attempts');
+  const attempts = data.attempts
+    .map((attempt, index) => normalizeAttempt(attempt, index))
+    .filter((attempt): attempt is Attempt => Boolean(attempt));
+
+  if (attempts.length) {
+    return { attempts, activeId: attempts[0].id };
+  }
+
+  const localAttempts = collectLocalMigrationAttempts(user);
+  const localTracker = localAttempts.length
+    ? { attempts: localAttempts, activeId: localAttempts[0].id }
+    : { attempts: [makeEmptyAttempt('2026年1月第10套', true)], activeId: '' };
+  localTracker.activeId = localTracker.activeId || localTracker.attempts[0]?.id || '';
+  const migrated = await apiRequest<{ attempts: unknown[] }>('/api/migration/local-storage', {
+    method: 'POST',
+    body: JSON.stringify({ attempts: localTracker.attempts }),
+  });
+  const migratedAttempts = migrated.attempts
+    .map((attempt, index) => normalizeAttempt(attempt, index))
+    .filter((attempt): attempt is Attempt => Boolean(attempt));
+
+  return {
+    attempts: migratedAttempts.length ? migratedAttempts : localTracker.attempts,
+    activeId: migratedAttempts[0]?.id ?? localTracker.activeId,
+  };
+}
+
 export default function Home() {
-  const [appState, setAppState] = useState(loadInitialAppState);
+  const [appState, setAppState] = useState<AppState>(() => ({
+    accounts: readAccounts(),
+    sessionUserId: '',
+    tracker: emptyTracker(),
+  }));
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [authForm, setAuthForm] = useState({
     username: '',
+    email: '',
+    code: '',
     password: '',
     confirm: '',
     avatar: '',
     error: '',
     isBusy: false,
+    isCodeBusy: false,
   });
+  const [isBooting, setIsBooting] = useState(true);
+  const [syncError, setSyncError] = useState('');
   const [tab, setTab] = useState('dashboard');
 
   const { accounts, sessionUserId, tracker } = appState;
@@ -560,10 +671,35 @@ export default function Home() {
   const currentUser = accounts.find((account) => account.id === sessionUserId);
 
   useEffect(() => {
-    if (currentUser && attempts.length) {
-      localStorage.setItem(userAttemptsStorageKey(currentUser.id), JSON.stringify(attempts));
+    let cancelled = false;
+
+    async function bootFromServer() {
+      try {
+        const data = await apiRequest<{ user: ApiUser }>('/api/auth/me');
+        if (cancelled) return;
+
+        const account = accountFromApi(data.user);
+        const remoteTracker = await fetchRemoteTracker(account);
+        if (cancelled) return;
+
+        saveAccounts([account]);
+        localStorage.setItem(sessionStorageKey, account.id);
+        setAppState({ accounts: [account], sessionUserId: account.id, tracker: remoteTracker });
+      } catch (error) {
+        if (error instanceof ApiError && error.status !== 401) {
+          setSyncError(error.message);
+        }
+        localStorage.removeItem(sessionStorageKey);
+      } finally {
+        if (!cancelled) setIsBooting(false);
+      }
     }
-  }, [attempts, currentUser]);
+
+    void bootFromServer();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function updateAccounts(nextAccounts: UserAccount[]) {
     saveAccounts(nextAccounts);
@@ -574,7 +710,7 @@ export default function Home() {
     setAuthForm((current) => ({ ...current, error: '' }));
   }
 
-  function updateAuthField(field: 'username' | 'password' | 'confirm', value: string) {
+  function updateAuthField(field: 'username' | 'email' | 'code' | 'password' | 'confirm', value: string) {
     setAuthForm((current) => ({ ...current, [field]: value, error: '' }));
   }
 
@@ -613,77 +749,154 @@ export default function Home() {
     updateAccounts(nextAccounts);
   }
 
+  async function handleSendRegisterCode() {
+    const email = authForm.email.trim().toLowerCase();
+    if (!email) {
+      setAuthForm((current) => ({ ...current, error: '请先输入邮箱。' }));
+      return;
+    }
+
+    setAuthForm((current) => ({ ...current, isCodeBusy: true, error: '' }));
+    try {
+      await apiRequest('/api/auth/send-register-code', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      setAuthForm((current) => ({ ...current, isCodeBusy: false, error: '验证码已发送，请查看邮箱。' }));
+    } catch (error) {
+      setAuthForm((current) => ({
+        ...current,
+        isCodeBusy: false,
+        error: error instanceof Error ? error.message : '验证码发送失败。',
+      }));
+    }
+  }
+
   async function handleRegister(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const username = authForm.username.trim();
+    const email = authForm.email.trim().toLowerCase();
+    const code = authForm.code.trim();
     const password = authForm.password;
 
     if (username.length < 2) {
       setAuthForm((current) => ({ ...current, error: '用户名至少需要 2 个字符。' }));
       return;
     }
-    if (password.length < 6) {
-      setAuthForm((current) => ({ ...current, error: '密码至少需要 6 位。' }));
+    if (!email) {
+      setAuthForm((current) => ({ ...current, error: '请输入邮箱。' }));
+      return;
+    }
+    if (!/^\d{6}$/.test(code)) {
+      setAuthForm((current) => ({ ...current, error: '请输入 6 位邮箱验证码。' }));
+      return;
+    }
+    if (password.length < 8) {
+      setAuthForm((current) => ({ ...current, error: '密码至少需要 8 位。' }));
       return;
     }
     if (password !== authForm.confirm) {
       setAuthForm((current) => ({ ...current, error: '两次输入的密码不一致。' }));
       return;
     }
-    if (accounts.some((account) => account.username.toLowerCase() === username.toLowerCase())) {
-      setAuthForm((current) => ({ ...current, error: '这个用户名已经被注册。' }));
-      return;
-    }
 
     setAuthForm((current) => ({ ...current, isBusy: true, error: '' }));
-    const account: UserAccount = {
-      id: createId(),
-      username,
-      passwordHash: await hashPassword(username, password),
-      avatar: authForm.avatar,
-      createdAt: today(),
-    };
-    const nextAccounts = [...accounts, account];
-    saveAccounts(nextAccounts);
-    localStorage.setItem(sessionStorageKey, account.id);
-    setAppState({
-      accounts: nextAccounts,
-      sessionUserId: account.id,
-      tracker: loadInitialTracker(account.id, true),
-    });
-    setAuthForm({ username: '', password: '', confirm: '', avatar: '', error: '', isBusy: false });
+    try {
+      const data = await apiRequest<{ user: ApiUser }>('/api/auth/register', {
+        method: 'POST',
+        body: JSON.stringify({ username, email, password, code, avatarUrl: authForm.avatar }),
+      });
+      const account = { ...accountFromApi(data.user), avatar: authForm.avatar };
+      const tracker = await fetchRemoteTracker(account);
+      updateAccounts([account]);
+      localStorage.setItem(sessionStorageKey, account.id);
+      setAppState({ accounts: [account], sessionUserId: account.id, tracker });
+      setAuthForm({ username: '', email: '', code: '', password: '', confirm: '', avatar: '', error: '', isBusy: false, isCodeBusy: false });
+    } catch (error) {
+      setAuthForm((current) => ({
+        ...current,
+        isBusy: false,
+        error: error instanceof Error ? error.message : '注册失败，请稍后重试。',
+      }));
+    }
   }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const username = authForm.username.trim();
-    const account = accounts.find((item) => item.username.toLowerCase() === username.toLowerCase());
-    if (!account) {
-      setAuthForm((current) => ({ ...current, error: '用户名或密码错误。' }));
+    const identifier = authForm.username.trim();
+    if (!identifier) {
+      setAuthForm((current) => ({ ...current, error: '请输入用户名或邮箱。' }));
       return;
     }
 
     setAuthForm((current) => ({ ...current, isBusy: true, error: '' }));
-    const passwordHash = await hashPassword(account.username, authForm.password);
-    if (passwordHash !== account.passwordHash) {
-      setAuthForm((current) => ({ ...current, isBusy: false, error: '用户名或密码错误。' }));
-      return;
+    try {
+      const data = await apiRequest<{ user: ApiUser }>('/api/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ identifier, password: authForm.password }),
+      });
+      const account = accountFromApi(data.user);
+      const tracker = await fetchRemoteTracker(account);
+      updateAccounts([account]);
+      localStorage.setItem(sessionStorageKey, account.id);
+      setAppState({ accounts: [account], sessionUserId: account.id, tracker });
+      setAuthForm({ username: '', email: '', code: '', password: '', confirm: '', avatar: '', error: '', isBusy: false, isCodeBusy: false });
+    } catch (error) {
+      setAuthForm((current) => ({
+        ...current,
+        isBusy: false,
+        error: error instanceof Error ? error.message : '登录失败，请稍后重试。',
+      }));
     }
-
-    localStorage.setItem(sessionStorageKey, account.id);
-    setAppState({
-      accounts,
-      sessionUserId: account.id,
-      tracker: loadInitialTracker(account.id, true),
-    });
-    setAuthForm({ username: '', password: '', confirm: '', avatar: '', error: '', isBusy: false });
   }
 
-  function logout() {
+  async function logout() {
+    try {
+      await apiRequest('/api/auth/logout', { method: 'POST' });
+    } catch {
+      // Local logout should still continue if the network request fails.
+    }
     localStorage.removeItem(sessionStorageKey);
     setAppState((current) => ({ ...current, sessionUserId: '', tracker: emptyTracker() }));
     setAuthMode('login');
     clearAuthError();
+  }
+
+  async function createRemoteAttempt(attempt: Attempt) {
+    setSyncError('');
+    try {
+      await apiRequest('/api/attempts', {
+        method: 'POST',
+        body: JSON.stringify(attempt),
+      });
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : '模考记录创建失败。');
+    }
+  }
+
+  async function saveRemoteAttempt(attempt: Attempt) {
+    setSyncError('');
+    try {
+      await apiRequest(`/api/attempts/${encodeURIComponent(attempt.id)}`, {
+        method: 'PUT',
+        body: JSON.stringify(attempt),
+      });
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 404) {
+        await createRemoteAttempt(attempt);
+        return;
+      }
+      setSyncError(error instanceof Error ? error.message : '模考记录保存失败。');
+    }
+  }
+
+  async function deleteRemoteAttempt(id: string) {
+    setSyncError('');
+    try {
+      await apiRequest(`/api/attempts/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    } catch (error) {
+      setSyncError(error instanceof Error ? error.message : '模考记录删除失败。');
+    }
   }
 
   function setAttempts(updater: Attempt[] | ((current: Attempt[]) => Attempt[])) {
@@ -713,6 +926,7 @@ export default function Home() {
 
   function updateAttempt(next: Attempt) {
     setAttempts((current) => current.map((attempt) => (attempt.id === next.id ? next : attempt)));
+    void saveRemoteAttempt(next);
   }
 
   function setValue(item: TemplateItem, raw: string) {
@@ -769,6 +983,7 @@ export default function Home() {
     setAttempts((current) => [next, ...current]);
     setActiveId(next.id);
     setTab('entry');
+    void createRemoteAttempt(next);
   }
 
   function duplicateAttempt() {
@@ -782,6 +997,7 @@ export default function Home() {
     setAttempts((current) => [next, ...current]);
     setActiveId(next.id);
     setTab('entry');
+    void createRemoteAttempt(next);
   }
 
   function resetCurrent() {
@@ -801,6 +1017,7 @@ export default function Home() {
     if (!confirmed) return;
 
     const remaining = attempts.filter((attempt) => attempt.id !== activeAttempt.id);
+    void deleteRemoteAttempt(activeAttempt.id);
     if (remaining.length) {
       setAttempts(remaining);
       setActiveId(remaining[0].id);
@@ -811,6 +1028,7 @@ export default function Home() {
     setAttempts([next]);
     setActiveId(next.id);
     setTab('entry');
+    void createRemoteAttempt(next);
   }
 
   const weakItems = useMemo(() => {
@@ -825,8 +1043,22 @@ export default function Home() {
       .slice(0, 5);
   }, [activeAttempt]);
 
-  const effectiveAuthMode = accounts.length ? authMode : 'register';
+  const effectiveAuthMode = authMode;
   const authPreview = { username: authForm.username || 'TOEFL', avatar: authForm.avatar };
+
+  if (isBooting) {
+    return (
+      <main className="auth-page">
+        <section className="auth-shell">
+          <div className="auth-copy">
+            <p>TOEFL iBT 2026 tracker</p>
+            <h1>正在同步你的模考数据</h1>
+            <span>正在连接云端记录。</span>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   if (!currentUser) {
     return (
@@ -842,7 +1074,6 @@ export default function Home() {
             <div className="auth-tabs" aria-label="登录与注册">
               <button
                 className={effectiveAuthMode === 'login' ? 'active' : ''}
-                disabled={!accounts.length}
                 onClick={() => {
                   setAuthMode('login');
                   clearAuthError();
@@ -875,15 +1106,46 @@ export default function Home() {
               )}
 
               <label className="field-group">
-                <span>用户名</span>
+                <span>{effectiveAuthMode === 'login' ? '用户名或邮箱' : '用户名'}</span>
                 <input
                   autoComplete="username"
                   className="field"
                   value={authForm.username}
                   onChange={(event) => updateAuthField('username', event.target.value)}
-                  placeholder="输入用户名"
+                  placeholder={effectiveAuthMode === 'login' ? '输入用户名或邮箱' : '输入用户名'}
                 />
               </label>
+
+              {effectiveAuthMode === 'register' && (
+                <>
+                  <label className="field-group">
+                    <span>邮箱</span>
+                    <input
+                      autoComplete="email"
+                      className="field"
+                      type="email"
+                      value={authForm.email}
+                      onChange={(event) => updateAuthField('email', event.target.value)}
+                      placeholder="用于接收验证码"
+                    />
+                  </label>
+                  <div className="code-row">
+                    <label className="field-group">
+                      <span>验证码</span>
+                      <input
+                        className="field"
+                        inputMode="numeric"
+                        value={authForm.code}
+                        onChange={(event) => updateAuthField('code', event.target.value)}
+                        placeholder="6 位数字"
+                      />
+                    </label>
+                    <button className="action-button code-button" disabled={authForm.isCodeBusy} onClick={handleSendRegisterCode} type="button">
+                      {authForm.isCodeBusy ? '发送中...' : '发送验证码'}
+                    </button>
+                  </div>
+                </>
+              )}
 
               <label className="field-group">
                 <span>密码</span>
@@ -893,7 +1155,7 @@ export default function Home() {
                   type="password"
                   value={authForm.password}
                   onChange={(event) => updateAuthField('password', event.target.value)}
-                  placeholder="至少 6 位"
+                  placeholder="至少 8 位"
                 />
               </label>
 
@@ -955,6 +1217,7 @@ export default function Home() {
               </button>
             ))}
           </nav>
+          {syncError && <p className="sync-error">{syncError}</p>}
         </div>
       </header>
 
