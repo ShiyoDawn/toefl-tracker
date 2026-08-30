@@ -1324,7 +1324,7 @@ export default function Home() {
               <section className="panel">
                 <div className="mb-5 flex items-center justify-between">
                   <h2 className="panel-title">趋势快照</h2>
-                  <span className="text-xs text-stone-500">按保存的模考日期排序</span>
+                  <span className="text-xs text-stone-500">按保存的模考日期排序 · 旧制 0-30</span>
                 </div>
                 <div className="trend-grid">
                   {sections.map((section) => (
@@ -1333,8 +1333,15 @@ export default function Home() {
                       <div className="trend-bars">
                         {history.map(({ attempt, summary }) => {
                           const sectionSummary = summary.find((item) => item.section === section);
-                          const height = sectionSummary ? Math.max(8, sectionSummary.band / 6 * 100) : 8;
-                          return <i key={attempt.id} title={`${attempt.title}: ${formatScore(sectionSummary?.band ?? '')}`} style={{ height: `${height}%` }} />;
+                          const oldScore = sectionSummary && sectionSummary.max > 0 ? sectionSummary.estimated30 : '';
+                          const height = oldScore === '' ? 8 : Math.max(8, oldScore / 30 * 100);
+                          return (
+                            <i
+                              key={attempt.id}
+                              title={`${attempt.title}: ${oldScore === '' ? '-' : `${formatScore(oldScore)} / 30`}`}
+                              style={{ height: `${height}%` }}
+                            />
+                          );
                         })}
                       </div>
                     </div>
